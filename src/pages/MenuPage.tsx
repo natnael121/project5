@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Navigate } from 'react-router-dom';
-import { MenuItem } from '../types';
+import { MenuItem, TableBill } from '../types';
 import { MenuCard } from '../components/MenuCard';
 import { MenuDetail } from '../components/MenuDetail';
 import { CartModal } from '../components/CartModal';
@@ -14,13 +14,23 @@ import { PaymentModal } from '../components/PaymentModal';
 import { useCart } from '../hooks/useCart';
 import { useSettings } from '../hooks/useSettings';
 import { firebaseService } from '../services/firebase';
-import { TableBill } from '../types';
 import { telegramService } from '../services/telegram';
 import { AnalyticsService } from '../services/analytics';
 import { useTranslation } from '../utils/translations';
 
 export const MenuPage: React.FC = () => {
   const { userId, tableNumber } = useParams<{ userId: string; tableNumber: string }>();
+  const { settings, updateSettings } = useSettings();
+  const {
+    items: cartItems,
+    addItem,
+    removeItem,
+    updateQuantity,
+    clearCart,
+    getTotalAmount,
+    getTotalItems,
+  } = useCart();
+
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [userExists, setUserExists] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(true);
@@ -34,19 +44,8 @@ export const MenuPage: React.FC = () => {
   const [activeCategory, setActiveCategory] = useState('all');
   const [activeTab, setActiveTab] = useState('home');
   const [tableBill, setTableBill] = useState<TableBill | null>(null);
+  const [isPayingBill, setIsPayingBill] = useState(false);
   const [analytics] = useState(() => new AnalyticsService(tableNumber || '1'));
-  const { settings, updateSettings } = useSettings();
-
-  const {
-    items: cartItems,
-    addItem,
-    removeItem,
-    updateQuantity,
-    clearCart,
-    getTotalAmount,
-    getTotalItems,
-  } = useCart();
-
   const t = useTranslation(settings.language);
 
   useEffect(() => {
@@ -57,13 +56,11 @@ export const MenuPage: React.FC = () => {
   }, [userId]);
 
   useEffect(() => {
-    // Poll for table bill updates every 30 seconds
     const interval = setInterval(() => {
       if (userId) {
         loadTableBill();
       }
     }, 30000);
-
     return () => clearInterval(interval);
   }, [userId]);
 
@@ -73,15 +70,8 @@ export const MenuPage: React.FC = () => {
     try {
       setLoading(true);
       const items = await firebaseService.getMenuItems(userId);
-      
-      if (items.length === 0) {
-        // Check if user exists by trying to get any data
-        setUserExists(false);
-        return;
-      }
-      
       setMenuItems(items);
-      setUserExists(true);
+      setUserExists(items.length > 0);
     } catch (error) {
       console.error('Error loading menu items:', error);
       setUserExists(false);
@@ -92,7 +82,6 @@ export const MenuPage: React.FC = () => {
 
   const loadTableBill = async () => {
     if (!userId || !tableNumber) return;
-    
     try {
       const bill = await firebaseService.getTableBill(userId, tableNumber);
       setTableBill(bill);
@@ -100,63 +89,6 @@ export const MenuPage: React.FC = () => {
       console.error('Error loading table bill:', error);
     }
   };
-
-  const getDemoMenuItems = (): MenuItem[] => [
-    {
-      id: '1',
-      name: 'Margherita Pizza',
-      description: 'Fresh tomatoes, mozzarella, basil, and olive oil',
-      price: 12.99,
-      photo: 'https://images.pexels.com/photos/315755/pexels-photo-315755.jpeg',
-      category: 'Pizza',
-      available: true,
-      preparation_time: 15,
-      ingredients: 'Tomatoes, Mozzarella, Basil, Olive Oil',
-      allergens: 'Gluten, Dairy',
-      popularity_score: 95,
-      views: 150,
-      orders: 45,
-      last_updated: new Date().toISOString(),
-    },
-    {
-      id: '2',
-      name: 'Caesar Salad',
-      description: 'Crisp romaine lettuce with parmesan and croutons',
-      price: 8.99,
-      photo: 'https://images.pexels.com/photos/1059905/pexels-photo-1059905.jpeg',
-      category: 'Salads',
-      available: true,
-      preparation_time: 5,
-      ingredients: 'Romaine Lettuce, Parmesan, Croutons, Caesar Dressing',
-      allergens: 'Dairy, Gluten',
-      popularity_score: 88,
-      views: 120,
-      orders: 32,
-      last_updated: new Date().toISOString(),
-    },
-    {
-      id: '3',
-      name: 'Grilled Salmon',
-      description: 'Fresh Atlantic salmon with herbs and lemon',
-      price: 18.99,
-      photo: 'https://images.pexels.com/photos/1640777/pexels-photo-1640777.jpeg',
-      category: 'Main Course',
-      available: true,
-      preparation_time: 20,
-      ingredients: 'Atlantic Salmon, Herbs, Lemon, Olive Oil',
-      allergens: 'Fish',
-      popularity_score: 92,
-      views: 98,
-      orders: 28,
-      last_updated: new Date().toISOString(),
-    },
-  ];
-
-  const categories = Array.from(new Set(menuItems.map(item => item.category)));
-  
-  const filteredItems = activeCategory === 'all' 
-    ? menuItems 
-    : menuItems.filter(item => item.category === activeCategory);
 
   const handleItemClick = (item: MenuItem) => {
     analytics.trackItemView(item.id);
@@ -188,8 +120,8 @@ export const MenuPage: React.FC = () => {
       id: 'temp', 
       ...pendingOrderData, 
       timestamp: new Date().toISOString(),
-      status: 'pending_approval' as const,
-      paymentStatus: 'pending' as const
+      status: 'pending_approval',
+      paymentStatus: 'pending'
     });
     
     try {
@@ -200,16 +132,12 @@ export const MenuPage: React.FC = () => {
         id: pendingOrderId, 
         ...pendingOrderData, 
         timestamp: new Date().toISOString(),
-        status: 'pending_approval' as const,
-        paymentStatus: 'pending' as const
+        status: 'pending_approval',
+        paymentStatus: 'pending'
       });
       clearCart();
       setShowCart(false);
-      
-      // Show feedback modal after successful order
       setTimeout(() => setShowFeedback(true), 2000);
-      
-      // Show success message
       alert('Order submitted for approval! You will be notified once approved.');
     } catch (error) {
       console.error('Error placing order:', error);
@@ -224,52 +152,73 @@ export const MenuPage: React.FC = () => {
   };
 
   const handlePaymentSubmit = async (paymentData: { screenshot: File; method: string }) => {
-    if (cartItems.length === 0) return;
+    if (isPayingBill) {
+      if (!tableBill) return;
+      
+      try {
+        await telegramService.sendPaymentConfirmation(
+          { 
+            id: tableBill.id,
+            tableNumber: tableBill.tableNumber,
+            userId: userId || '',
+            items: tableBill.items,
+            totalAmount: tableBill.total,
+            timestamp: new Date().toISOString(),
+            status: 'pending_approval',
+            paymentStatus: 'pending',
+            paymentMethod: paymentData.method === 'bank_transfer' ? 'bank_transfer' : 'mobile'
+          }, 
+          paymentData.method, 
+          paymentData.screenshot
+        );
+        
+        setShowPayment(false);
+        setTimeout(() => setShowFeedback(true), 2000);
+        alert('Payment confirmation sent for your bill!');
+      } catch (error) {
+        console.error('Error submitting payment:', error);
+        alert('Payment submitted! (Note: Telegram notification may have failed)');
+      } finally {
+        setIsPayingBill(false);
+      }
+    } else {
+      if (cartItems.length === 0) return;
+      
+      try {
+        const pendingOrderData = {
+          tableNumber: tableNumber || '1',
+          userId: userId || '',
+          items: cartItems,
+          totalAmount: getTotalAmount(),
+          paymentMethod: paymentData.method === 'bank_transfer' ? 'bank_transfer' : 'mobile',
+        };
 
-    const pendingOrderData = {
-      tableNumber: tableNumber || '1',
-      userId: userId || '',
-      items: cartItems,
-      totalAmount: getTotalAmount(),
-      paymentMethod: paymentData.method === 'bank_transfer' ? 'bank_transfer' as const : 'mobile' as const,
-    };
-
-    analytics.trackOrder({ 
-      id: 'temp', 
-      ...pendingOrderData, 
-      timestamp: new Date().toISOString(),
-      status: 'pending_approval' as const,
-      paymentStatus: 'pending' as const
-    });
-    
-    try {
-      const pendingOrderId = await firebaseService.addPendingOrder(pendingOrderData);
-      setLastOrderId(pendingOrderId);
-      
-      await telegramService.sendPaymentConfirmation(
-        { 
-          id: pendingOrderId, 
-          ...pendingOrderData, 
-          timestamp: new Date().toISOString(),
-          status: 'pending_approval' as const,
-          paymentStatus: 'pending' as const
-        }, 
-        paymentData.method, 
-        paymentData.screenshot
-      );
-      clearCart();
-      setShowPayment(false);
-      
-      // Show feedback modal after successful payment
-      setTimeout(() => setShowFeedback(true), 2000);
-      
-      // Show success message
-      alert('Payment confirmation sent! Your order is pending approval.');
-    } catch (error) {
-      console.error('Error submitting payment:', error);
-      alert('Payment submitted! (Note: Telegram notification may have failed)');
+        const pendingOrderId = await firebaseService.addPendingOrder(pendingOrderData);
+        setLastOrderId(pendingOrderId);
+        
+        await telegramService.sendPaymentConfirmation(
+          { 
+            id: pendingOrderId, 
+            ...pendingOrderData, 
+            timestamp: new Date().toISOString(),
+            status: 'pending_approval',
+            paymentStatus: 'pending'
+          }, 
+          paymentData.method, 
+          paymentData.screenshot
+        );
+        
+        clearCart();
+        setShowPayment(false);
+        setTimeout(() => setShowFeedback(true), 2000);
+        alert('Payment confirmation sent! Your order is pending approval.');
+      } catch (error) {
+        console.error('Error submitting payment:', error);
+        alert('Payment submitted! (Note: Telegram notification may have failed)');
+      }
     }
   };
+
   const handleWaiterCall = async () => {
     analytics.trackWaiterCall();
     try {
@@ -281,21 +230,17 @@ export const MenuPage: React.FC = () => {
     }
   };
 
-
   const handleBillClick = () => {
     setShowBill(true);
   };
 
   const handleFeedbackSubmit = (feedback: any) => {
-    // Store feedback locally and potentially send to analytics
     const feedbacks = JSON.parse(localStorage.getItem('feedbacks') || '[]');
     feedbacks.push(feedback);
     localStorage.setItem('feedbacks', JSON.stringify(feedbacks));
-    
     alert(t('thankYou'));
   };
 
-  // Redirect if user doesn't exist
   if (userExists === false) {
     return <Navigate to="/login" replace />;
   }
@@ -310,6 +255,11 @@ export const MenuPage: React.FC = () => {
       </div>
     );
   }
+
+  const categories = Array.from(new Set(menuItems.map(item => item.category)));
+  const filteredItems = activeCategory === 'all' 
+    ? menuItems 
+    : menuItems.filter(item => item.category === activeCategory);
 
   return (
     <div className="min-h-screen bg-gray-50 pb-20">
@@ -360,13 +310,31 @@ export const MenuPage: React.FC = () => {
 
       {showPayment && (
         <PaymentModal
-          items={cartItems}
-          totalAmount={getTotalAmount()}
+          items={isPayingBill ? (tableBill?.items || []) : cartItems}
+          totalAmount={isPayingBill ? (tableBill?.total || 0) : getTotalAmount()}
           tableNumber={tableNumber || '1'}
-          onClose={() => setShowPayment(false)}
+          onClose={() => {
+            setShowPayment(false);
+            setIsPayingBill(false);
+          }}
           onPaymentSubmit={handlePaymentSubmit}
         />
       )}
+
+      {showBill && (
+        <BillModal
+          tableBill={tableBill}
+          tableNumber={tableNumber || '1'}
+          businessName="Restaurant"
+          onClose={() => setShowBill(false)}
+          onPaymentOrder={() => {
+            setIsPayingBill(true);
+            setShowBill(false);
+            setShowPayment(true);
+          }}
+        />
+      )}
+
       {showSettings && (
         <SettingsModal
           settings={settings}
@@ -382,15 +350,6 @@ export const MenuPage: React.FC = () => {
           language={settings.language}
           onClose={() => setShowFeedback(false)}
           onSubmit={handleFeedbackSubmit}
-        />
-      )}
-
-      {showBill && (
-        <BillModal
-          tableBill={tableBill}
-          tableNumber={tableNumber || '1'}
-          businessName="Restaurant" // This would come from user data
-          onClose={() => setShowBill(false)}
         />
       )}
 

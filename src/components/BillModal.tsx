@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Receipt } from 'lucide-react';
+import { X, Receipt, CreditCard } from 'lucide-react';
 import { TableBill } from '../types';
 
 interface BillModalProps {
@@ -7,8 +7,10 @@ interface BillModalProps {
   tableNumber: string;
   businessName: string;
   onClose: () => void;
-  onPaymentOrder: () => void; // <-- Added this prop for payment action
+  onPaymentOrder: () => void;
 }
+
+
 
 export const BillModal: React.FC<BillModalProps> = ({
   tableBill,
@@ -43,6 +45,7 @@ export const BillModal: React.FC<BillModalProps> = ({
           <button
             onClick={onClose}
             className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+            aria-label="Close bill"
           >
             <X className="w-5 h-5 text-gray-700" />
           </button>
@@ -62,7 +65,7 @@ export const BillModal: React.FC<BillModalProps> = ({
           <div className="space-y-3 mb-6">
             <h3 className="font-semibold text-gray-900">Items Ordered</h3>
             {tableBill.items.map((item, index) => (
-              <div key={index} className="flex justify-between items-center py-2 border-b border-gray-100">
+              <div key={`${item.id}-${index}`} className="flex justify-between items-center py-2 border-b border-gray-100">
                 <div className="flex-1">
                   <p className="font-medium text-gray-900">{item.name}</p>
                   <p className="text-sm text-gray-600">
@@ -81,7 +84,7 @@ export const BillModal: React.FC<BillModalProps> = ({
               <span className="font-medium">${tableBill.subtotal.toFixed(2)}</span>
             </div>
             <div className="flex justify-between text-sm">
-              <span className="text-gray-600">Tax (15%):</span>
+              <span className="text-gray-600">Tax ({((tableBill.tax / tableBill.subtotal) * 100).toFixed(0)}%):</span>
               <span className="font-medium">${tableBill.tax.toFixed(2)}</span>
             </div>
             <div className="flex justify-between text-lg font-bold border-t pt-2">
@@ -90,13 +93,19 @@ export const BillModal: React.FC<BillModalProps> = ({
             </div>
           </div>
 
-          {/* Pay Now Button */}
-          <button
-            onClick={onPaymentOrder}
-            className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition-colors"
-          >
-            Order & Pay Now
-          </button>
+          {/* Payment Section */}
+          <div className="space-y-4">
+            <button
+              onClick={onPaymentOrder}
+              className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
+            >
+              <CreditCard className="w-5 h-5" />
+              Pay Now
+            </button>
+            <p className="text-xs text-gray-500 text-center">
+              You'll be able to select your payment method in the next step
+            </p>
+          </div>
         </div>
 
         <div className="p-4 border-t bg-gray-50">

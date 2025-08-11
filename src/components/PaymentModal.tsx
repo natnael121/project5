@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { X, Upload, Camera, Check } from 'lucide-react';
+import { X, Upload, Camera, Check, Banknote, Smartphone } from 'lucide-react';
 import { OrderItem } from '../types';
 
 interface PaymentModalProps {
@@ -56,6 +56,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
           <button
             onClick={onClose}
             className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+            aria-label="Close payment modal"
           >
             <X className="w-5 h-5 text-gray-700" />
           </button>
@@ -65,10 +66,10 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
           {/* Order Summary */}
           <div className="bg-gray-50 p-3 rounded-lg text-sm">
             <h3 className="font-semibold text-gray-900 mb-2">Order Summary - Table {tableNumber}</h3>
-            <div className="space-y-1">
+            <div className="space-y-1 max-h-40 overflow-y-auto">
               {items.map((item) => (
-                <div key={item.id} className="flex justify-between">
-                  <span>{item.name} x{item.quantity}</span>
+                <div key={`${item.id}-${item.quantity}`} className="flex justify-between">
+                  <span>{item.name} × {item.quantity}</span>
                   <span>${item.total.toFixed(2)}</span>
                 </div>
               ))}
@@ -85,36 +86,39 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
             <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={() => setPaymentMethod('bank_transfer')}
-                className={`p-2 text-sm rounded-lg border-2 transition-colors ${
+                className={`p-3 text-sm rounded-lg border-2 transition-colors flex items-center justify-center gap-2 ${
                   paymentMethod === 'bank_transfer'
                     ? 'border-green-600 bg-green-50 text-green-700'
                     : 'border-gray-200 hover:border-gray-300'
                 }`}
               >
-                🏦 Bank Transfer
+                <Banknote className="w-4 h-4" />
+                Bank Transfer
               </button>
               <button
                 onClick={() => setPaymentMethod('mobile_money')}
-                className={`p-2 text-sm rounded-lg border-2 transition-colors ${
+                className={`p-3 text-sm rounded-lg border-2 transition-colors flex items-center justify-center gap-2 ${
                   paymentMethod === 'mobile_money'
                     ? 'border-green-600 bg-green-50 text-green-700'
                     : 'border-gray-200 hover:border-gray-300'
                 }`}
               >
-                📱 Mobile Money
+                <Smartphone className="w-4 h-4" />
+                Mobile Money
               </button>
             </div>
           </div>
 
           {/* Screenshot Upload */}
           <div>
-            <h3 className="font-semibold text-gray-900 mb-2">Upload Screenshot</h3>
+            <h3 className="font-semibold text-gray-900 mb-2">Upload Payment Proof</h3>
             <input
               ref={fileInputRef}
               type="file"
               accept="image/*"
               onChange={handleFileSelect}
               className="hidden"
+              aria-label="Payment proof upload"
             />
 
             {!preview ? (
@@ -123,22 +127,23 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                 className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center cursor-pointer hover:border-green-500 hover:bg-green-50 transition-colors"
               >
                 <Upload className="w-10 h-10 text-gray-400 mx-auto mb-2" />
-                <p className="text-gray-600 text-sm">Click to upload payment screenshot</p>
+                <p className="text-gray-600 text-sm">Click to upload payment proof</p>
                 <p className="text-xs text-gray-500">PNG, JPG up to 10MB</p>
               </div>
             ) : (
-              <div className="relative">
+              <div className="relative group">
                 <img
                   src={preview}
-                  alt="Payment screenshot"
-                  className="w-full h-40 object-cover rounded-lg border"
+                  alt="Payment proof screenshot"
+                  className="w-full h-40 object-contain rounded-lg border bg-gray-50"
                 />
                 <div className="absolute top-2 right-2 bg-green-600 text-white p-1 rounded-full">
                   <Check className="w-4 h-4" />
                 </div>
                 <button
                   onClick={triggerFileInput}
-                  className="absolute bottom-2 right-2 bg-white bg-opacity-90 hover:bg-opacity-100 p-2 rounded-lg transition-all"
+                  className="absolute bottom-2 right-2 bg-white bg-opacity-90 hover:bg-opacity-100 p-2 rounded-lg transition-all shadow-sm"
+                  aria-label="Change payment proof"
                 >
                   <Camera className="w-4 h-4" />
                 </button>
@@ -150,19 +155,41 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
           <div className="bg-blue-50 p-3 rounded-lg text-sm text-blue-800">
             <h4 className="font-semibold text-blue-900 mb-1">Payment Instructions:</h4>
             {paymentMethod === 'bank_transfer' ? (
-              <>
-                <p>• Account: 123-456-789</p>
-                <p>• Bank: Example Bank</p>
-                <p>• Ref: Table {tableNumber}</p>
-              </>
+              <div className="space-y-1">
+                <p className="flex items-start">
+                  <span className="inline-block min-w-[6em]">Account:</span>
+                  <span>123-456-789 (Example Bank)</span>
+                </p>
+                <p className="flex items-start">
+                  <span className="inline-block min-w-[6em]">Reference:</span>
+                  <span>Table {tableNumber}</span>
+                </p>
+                <p className="flex items-start">
+                  <span className="inline-block min-w-[6em]">Amount:</span>
+                  <span>${totalAmount.toFixed(2)}</span>
+                </p>
+              </div>
             ) : (
-              <>
-                <p>• Send to: +251-912-345-678</p>
-                <p>• Service: Telebirr / M-Birr</p>
-                <p>• Ref: Table {tableNumber}</p>
-              </>
+              <div className="space-y-1">
+                <p className="flex items-start">
+                  <span className="inline-block min-w-[6em]">Number:</span>
+                  <span>+251-912-345-678</span>
+                </p>
+                <p className="flex items-start">
+                  <span className="inline-block min-w-[6em]">Service:</span>
+                  <span>Telebirr / M-Birr</span>
+                </p>
+                <p className="flex items-start">
+                  <span className="inline-block min-w-[6em]">Reference:</span>
+                  <span>Table {tableNumber}</span>
+                </p>
+                <p className="flex items-start">
+                  <span className="inline-block min-w-[6em]">Amount:</span>
+                  <span>${totalAmount.toFixed(2)}</span>
+                </p>
+              </div>
             )}
-            <p>• Upload screenshot after payment</p>
+            <p className="mt-2 text-blue-700 font-medium">• Upload proof after payment</p>
           </div>
         </div>
 
@@ -171,9 +198,19 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
           <button
             onClick={handleSubmit}
             disabled={!selectedFile || isSubmitting}
-            className="w-full bg-green-600 text-white py-3 rounded-xl font-semibold hover:bg-green-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
+            className="w-full bg-green-600 text-white py-3 rounded-xl font-semibold hover:bg-green-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
-            {isSubmitting ? 'Submitting...' : 'Submit Payment Confirmation'}
+            {isSubmitting ? (
+              <>
+                <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Processing...
+              </>
+            ) : (
+              'Confirm Payment'
+            )}
           </button>
         </div>
       </div>

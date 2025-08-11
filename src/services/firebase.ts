@@ -14,10 +14,15 @@ import {
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '../config/firebase';
-import { MenuItem, Category, Order, Bill, User, MenuStats, PendingOrder, TableBill, RestaurantSettings } from '../types';
+import { 
+  MenuItem, Category, Order, Bill, User, MenuStats, 
+  PendingOrder, TableBill, RestaurantSettings, PaymentConfirmation, OrderItem
+} from '../types';
 
 class FirebaseService {
+  // =======================
   // Menu Items
+  // =======================
   async getMenuItems(userId: string): Promise<MenuItem[]> {
     try {
       const q = query(
@@ -26,7 +31,6 @@ class FirebaseService {
       );
       const snapshot = await getDocs(q);
       const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as MenuItem));
-      // Sort by category on client side to avoid composite index requirement
       return items.sort((a, b) => a.category.localeCompare(b.category));
     } catch (error) {
       console.error('Error fetching menu items:', error);
@@ -68,7 +72,9 @@ class FirebaseService {
     }
   }
 
+  // =======================
   // Categories
+  // =======================
   async getCategories(userId: string): Promise<Category[]> {
     try {
       const q = query(
@@ -77,7 +83,6 @@ class FirebaseService {
       );
       const snapshot = await getDocs(q);
       const categories = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Category));
-      // Sort by order on client side to avoid composite index requirement
       return categories.sort((a, b) => (a.order || 0) - (b.order || 0));
     } catch (error) {
       console.error('Error fetching categories:', error);
@@ -116,7 +121,9 @@ class FirebaseService {
     }
   }
 
+  // =======================
   // Pending Orders
+  // =======================
   async getPendingOrders(userId: string): Promise<PendingOrder[]> {
     try {
       const q = query(
@@ -147,20 +154,14 @@ class FirebaseService {
 
   async approvePendingOrder(pendingOrderId: string, pendingOrder: PendingOrder): Promise<string> {
     try {
-      // Add to approved orders
       const approvedOrder: Omit<Order, 'id'> = {
         ...pendingOrder,
         status: 'approved',
         paymentStatus: 'pending',
       };
       const orderId = await this.addOrder(approvedOrder);
-      
-      // Add to table bill
       await this.addToTableBill(pendingOrder.userId, pendingOrder.tableNumber, pendingOrder.items);
-      
-      // Remove from pending orders
       await deleteDoc(doc(db, 'pendingOrders', pendingOrderId));
-      
       return orderId;
     } catch (error) {
       console.error('Error approving pending order:', error);
@@ -177,7 +178,9 @@ class FirebaseService {
     }
   }
 
+  // =======================
   // Table Bills
+  // =======================
   async getTableBills(userId: string): Promise<TableBill[]> {
     try {
       const q = query(
@@ -204,9 +207,8 @@ class FirebaseService {
       );
       const snapshot = await getDocs(q);
       if (snapshot.empty) return null;
-      
-      const doc = snapshot.docs[0];
-      return { id: doc.id, ...doc.data() } as TableBill;
+      const docData = snapshot.docs[0];
+      return { id: docData.id, ...docData.data() } as TableBill;
     } catch (error) {
       console.error('Error fetching table bill:', error);
       return null;
@@ -216,25 +218,20 @@ class FirebaseService {
   async addToTableBill(userId: string, tableNumber: string, items: OrderItem[]): Promise<void> {
     try {
       const existingBill = await this.getTableBill(userId, tableNumber);
-      
       if (existingBill) {
-        // Add items to existing bill
         const updatedItems = [...existingBill.items];
-        
         items.forEach(newItem => {
-          const existingItemIndex = updatedItems.findIndex(item => item.id === newItem.id);
-          if (existingItemIndex >= 0) {
-            updatedItems[existingItemIndex].quantity += newItem.quantity;
-            updatedItems[existingItemIndex].total += newItem.total;
+          const idx = updatedItems.findIndex(item => item.id === newItem.id);
+          if (idx >= 0) {
+            updatedItems[idx].quantity += newItem.quantity;
+            updatedItems[idx].total += newItem.total;
           } else {
             updatedItems.push(newItem);
           }
         });
-        
         const subtotal = updatedItems.reduce((sum, item) => sum + item.total, 0);
         const tax = subtotal * 0.15;
         const total = subtotal + tax;
-        
         await updateDoc(doc(db, 'tableBills', existingBill.id), {
           items: updatedItems,
           subtotal,
@@ -243,11 +240,9 @@ class FirebaseService {
           updatedAt: new Date().toISOString(),
         });
       } else {
-        // Create new bill
         const subtotal = items.reduce((sum, item) => sum + item.total, 0);
         const tax = subtotal * 0.15;
         const total = subtotal + tax;
-        
         const newBill: Omit<TableBill, 'id'> = {
           tableNumber,
           userId,
@@ -259,7 +254,6 @@ class FirebaseService {
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         };
-        
         await addDoc(collection(db, 'tableBills'), newBill);
       }
     } catch (error) {
@@ -268,24 +262,12 @@ class FirebaseService {
     }
   }
 
-  async addItemToTableBill(userId: string, tableNumber: string, item: OrderItem): Promise<void> {
-    try {
-      await this.addToTableBill(userId, tableNumber, [item]);
-    } catch (error) {
-      console.error('Error adding item to table bill:', error);
-      throw error;
-    }
-  }
-
   async removeItemFromTableBill(userId: string, tableNumber: string, itemId: string): Promise<void> {
     try {
       const bill = await this.getTableBill(userId, tableNumber);
       if (!bill) return;
-      
       const updatedItems = bill.items.filter(item => item.id !== itemId);
-      
       if (updatedItems.length === 0) {
-        // Delete bill if no items left
         await updateDoc(doc(db, 'tableBills', bill.id), {
           status: 'cancelled',
           updatedAt: new Date().toISOString(),
@@ -294,7 +276,6 @@ class FirebaseService {
         const subtotal = updatedItems.reduce((sum, item) => sum + item.total, 0);
         const tax = subtotal * 0.15;
         const total = subtotal + tax;
-        
         await updateDoc(doc(db, 'tableBills', bill.id), {
           items: updatedItems,
           subtotal,
@@ -309,80 +290,69 @@ class FirebaseService {
     }
   }
 
-  async markTableBillAsPaid(userId: string, tableNumber: string): Promise<void> {
+  async markTableBillAsPaid(userId: string, tableNumber: string, confirmationId?: string): Promise<void> {
     try {
       const bill = await this.getTableBill(userId, tableNumber);
       if (!bill) return;
-      
-      await updateDoc(doc(db, 'tableBills', bill.id), {
+      const updates: Partial<TableBill> = {
         status: 'paid',
-        updatedAt: new Date().toISOString(),
-      });
+        updatedAt: new Date().toISOString()
+      };
+      if (confirmationId) {
+        updates.paymentConfirmationId = confirmationId;
+      }
+      await updateDoc(doc(db, 'tableBills', bill.id), updates);
     } catch (error) {
       console.error('Error marking table bill as paid:', error);
       throw error;
     }
   }
 
-  // Restaurant Settings
-  async getRestaurantSettings(userId: string): Promise<RestaurantSettings | null> {
+  // =======================
+  // Payment Confirmations
+  // =======================
+  async getPaymentConfirmations(userId: string): Promise<PaymentConfirmation[]> {
     try {
       const q = query(
-        collection(db, 'restaurantSettings'), 
-        where('userId', '==', userId)
+        collection(db, 'paymentConfirmations'), 
+        where('userId', '==', userId),
+        where('status', '==', 'pending')
       );
       const snapshot = await getDocs(q);
-      if (snapshot.empty) return null;
-      
-      const doc = snapshot.docs[0];
-      return { id: doc.id, ...doc.data() } as RestaurantSettings;
+      return snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      } as PaymentConfirmation));
     } catch (error) {
-      console.error('Error fetching restaurant settings:', error);
-      return null;
+      console.error('Error fetching payment confirmations:', error);
+      return [];
     }
   }
 
-  async updateRestaurantSettings(userId: string, settings: Partial<RestaurantSettings>): Promise<void> {
+  async updatePaymentConfirmation(id: string, status: 'approved' | 'rejected'): Promise<void> {
     try {
-      const existing = await this.getRestaurantSettings(userId);
-      
-      if (existing) {
-        await updateDoc(doc(db, 'restaurantSettings', existing.id), {
-          ...settings,
-          updatedAt: new Date().toISOString(),
-        });
-      } else {
-        const newSettings: Omit<RestaurantSettings, 'id'> = {
-          userId,
-          numberOfTables: 10,
-          taxRate: 0.15,
-          currency: 'USD',
-          autoApproveOrders: false,
-          ...settings,
-          updatedAt: new Date().toISOString(),
-        };
-        await addDoc(collection(db, 'restaurantSettings'), newSettings);
-      }
+      await updateDoc(doc(db, 'paymentConfirmations', id), {
+        status,
+        processedAt: new Date().toISOString()
+      });
     } catch (error) {
-      console.error('Error updating restaurant settings:', error);
+      console.error('Error updating payment confirmation:', error);
       throw error;
     }
   }
 
+  // =======================
   // Orders
+  // =======================
   async getOrders(userId: string, limit_count?: number): Promise<Order[]> {
     try {
       let q = query(
         collection(db, 'orders'), 
         where('userId', '==', userId)
       );
-      
       const snapshot = await getDocs(q);
       const orders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
-      // Sort by timestamp on client side to avoid composite index requirement
       const sortedOrders = orders.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-      
-      // Apply limit on client side if specified
       return limit_count ? sortedOrders.slice(0, limit_count) : sortedOrders;
     } catch (error) {
       console.error('Error fetching orders:', error);
@@ -396,10 +366,7 @@ class FirebaseService {
         ...order,
         timestamp: new Date().toISOString(),
       });
-      
-      // Create bill automatically
       await this.createBill(docRef.id, order);
-      
       return docRef.id;
     } catch (error) {
       console.error('Error adding order:', error);
@@ -416,13 +383,14 @@ class FirebaseService {
     }
   }
 
+  // =======================
   // Bills
+  // =======================
   async createBill(orderId: string, order: Omit<Order, 'id'>): Promise<string> {
     try {
       const subtotal = order.totalAmount;
-      const tax = subtotal * 0.15; // 15% tax
+      const tax = subtotal * 0.15;
       const total = subtotal + tax;
-
       const bill: Omit<Bill, 'id'> = {
         orderId,
         userId: order.userId,
@@ -434,7 +402,6 @@ class FirebaseService {
         timestamp: new Date().toISOString(),
         status: 'draft',
       };
-
       const docRef = await addDoc(collection(db, 'bills'), bill);
       return docRef.id;
     } catch (error) {
@@ -451,7 +418,6 @@ class FirebaseService {
       );
       const snapshot = await getDocs(q);
       const bills = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Bill));
-      // Sort by timestamp on client side to avoid composite index requirement
       return bills.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     } catch (error) {
       console.error('Error fetching bills:', error);
@@ -459,7 +425,6 @@ class FirebaseService {
     }
   }
 
-  // Bills
   async updateBill(id: string, updates: Partial<Bill>): Promise<void> {
     try {
       await updateDoc(doc(db, 'bills', id), updates);
@@ -469,17 +434,16 @@ class FirebaseService {
     }
   }
 
+  // =======================
   // Analytics
+  // =======================
   async getMenuStats(userId: string): Promise<MenuStats> {
     try {
       const orders = await this.getOrders(userId);
       const menuItems = await this.getMenuItems(userId);
-
       const totalOrders = orders.length;
       const totalRevenue = orders.reduce((sum, order) => sum + order.totalAmount, 0);
       const totalViews = menuItems.reduce((sum, item) => sum + item.views, 0);
-
-      // Calculate popular items
       const itemOrderCounts: Record<string, { name: string; orders: number }> = {};
       orders.forEach(order => {
         order.items.forEach(item => {
@@ -490,15 +454,11 @@ class FirebaseService {
           itemOrderCounts[item.id].orders += item.quantity;
         });
       });
-
       const popularItems = Object.entries(itemOrderCounts)
         .map(([id, data]) => ({ id, ...data }))
         .sort((a, b) => b.orders - a.orders)
         .slice(0, 5);
-
-      // Calculate monthly revenue (last 6 months)
       const monthlyRevenue = this.calculateMonthlyRevenue(orders);
-
       return {
         totalOrders,
         totalRevenue,
@@ -522,20 +482,20 @@ class FirebaseService {
 
   private calculateMonthlyRevenue(orders: Order[]): Array<{ month: string; revenue: number }> {
     const monthlyData: Record<string, number> = {};
-    
     orders.forEach(order => {
       const date = new Date(order.timestamp);
       const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
       monthlyData[monthKey] = (monthlyData[monthKey] || 0) + order.totalAmount;
     });
-
     return Object.entries(monthlyData)
       .map(([month, revenue]) => ({ month, revenue }))
       .sort((a, b) => a.month.localeCompare(b.month))
-      .slice(-6); // Last 6 months
+      .slice(-6);
   }
 
+  // =======================
   // File Upload
+  // =======================
   async uploadImage(file: File, path: string): Promise<string> {
     try {
       const storageRef = ref(storage, path);
@@ -548,7 +508,9 @@ class FirebaseService {
     }
   }
 
+  // =======================
   // User Profile
+  // =======================
   async updateUserProfile(userId: string, updates: Partial<User>): Promise<void> {
     try {
       await updateDoc(doc(db, 'users', userId), updates);

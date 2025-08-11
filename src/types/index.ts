@@ -49,6 +49,34 @@ export interface Order {
   paymentStatus: 'pending' | 'paid' | 'failed';
   notes?: string;
 }
+export interface PaymentConfirmation {
+  id: string;
+  tableNumber: string;
+  items: OrderItem[];
+  subtotal: number;
+  tax: number;
+  total: number;
+  method: 'bank_transfer' | 'mobile_money';
+  screenshotUrl: string;
+  timestamp: string;
+  status: 'pending' | 'approved' | 'rejected';
+  userId: string;
+  orderId?: string; // Optional reference to the original order
+}
+
+export interface TableBill {
+  id: string;
+  tableNumber: string;
+  userId: string;
+  items: OrderItem[];
+  subtotal: number;
+  tax: number;
+  total: number;
+  status: 'active' | 'paid' | 'cancelled';
+  createdAt: string;
+  updatedAt: string;
+  paymentConfirmationId?: string; // Add this new field
+}
 
 export interface PendingOrder {
   id: string;
